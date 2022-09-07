@@ -2,18 +2,79 @@ from django.contrib.auth.models import AnonymousUser
 from drf_extra_fields.fields import Base64ImageField
 from rest_framework import serializers
 
-from recipes.models import (
-    Favorite,
-    Ingredient,
-    IngredientRecipe,
-    Recipe,
-    ShoppingCart,
-    Tag,
-    TagRecipe,
-)
-from recipes.serializers import IngredientRecipeSerializer
-from users.models import User
-from users.serializers import UserGetSerializer
+from recipes.models import (Favorite, Ingredient, IngredientRecipe, Recipe,
+                            ShoppingCart, Tag)
+from users.models import Follower, User
+
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        fields = (
+            "email",
+            "username",
+            "first_name",
+            "last_name",
+            "password",
+        )
+        model = User
+
+
+class UserSuccesfullSignUpSerializer(UserSerializer):
+    class Meta:
+        fields = (
+            "email",
+            "id",
+            "username",
+            "first_name",
+            "last_name",
+        )
+        model = User
+
+
+class UserGetSerializer(UserSerializer):
+    is_subscribed = serializers.SerializerMethodField(required=False)
+
+    class Meta:
+        fields = (
+            "email",
+            "id",
+            "username",
+            "first_name",
+            "last_name",
+            "is_subscribed",
+        )
+        model = User
+
+    def get_is_subscribed(self, instance):
+        user = self.context["request"].user
+        author = instance
+        if (
+            not isinstance(user, AnonymousUser)
+            and Follower.objects.filter(author=author, follower=user).exists()
+        ):
+            return True
+        else:
+            return False
+
+
+class TagSerializer(serializers.ModelSerializer):
+    class Meta:
+        fields = "__all__"
+        model = Tag
+
+
+class IngredientRecipeSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source="ingredient")
+
+    class Meta:
+        fields = ("id", "amount")
+        model = IngredientRecipe
+
+
+class IngredientSerializer(serializers.ModelSerializer):
+    class Meta:
+        fields = "__all__"
+        model = Ingredient
 
 
 class RecipeSerializer(serializers.ModelSerializer):
@@ -42,19 +103,6 @@ class RecipeSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ("id", "author")
 
-    def create(self, validated_data):
-        tags = validated_data.pop("tags")
-        ingredients = validated_data.pop("ingredients")
-        recipe = Recipe.objects.create(**validated_data)
-        for tag in tags:
-            TagRecipe.objects.create(recipe=recipe, tag=tag)
-        for ingredient in ingredients:
-            instance = Ingredient.objects.get(pk=ingredient["ingredient"])
-            IngredientRecipe.objects.create(
-                recipe=recipe, ingredient=instance, amount=ingredient["amount"]
-            )
-        return recipe
-
     def to_representation(self, instance):
         data = super(RecipeSerializer, self).to_representation(instance)
         data["tags"] = []
@@ -80,48 +128,6 @@ class RecipeSerializer(serializers.ModelSerializer):
             }
             data["ingredients"].append(ingredient_dict)
         return data
-
-    def update(self, instance, validated_data):
-        tags_data = validated_data.pop("tags")
-        ingredients_data = validated_data.pop("ingredients")
-        instance = super(RecipeSerializer, self).update(
-            instance, validated_data
-        )
-        tag_id_list = []
-        for tag_data in tags_data:
-            tag_id_list.append(tag_data.pk)
-        ingredients_id_list = []
-        for ingredient_data in ingredients_data:
-            ingredients_id_list.append(ingredient_data["ingredient"])
-        for tag in instance.tags.all():
-            if tag.tag.pk not in tag_id_list:
-                tag_recipe_obj = TagRecipe.objects.get(
-                    tag=tag.tag, recipe=instance
-                )
-                tag_recipe_obj.delete()
-        for tag in tags_data:
-            tag, status = TagRecipe.objects.get_or_create(
-                tag=tag, recipe=instance
-            )
-        for ingredient in instance.ingredients.all():
-            if ingredient.ingredient.pk not in ingredients_id_list:
-                ingredient_recipe_obj = IngredientRecipe.objects.get(
-                    ingredient=ingredient.ingredient, recipe=instance
-                )
-                ingredient_recipe_obj.delete()
-        for ingredient in ingredients_data:
-            ingredient_obj = Ingredient.objects.get(
-                pk=ingredient["ingredient"]
-            )
-            (
-                ingredient_recipe_obj,
-                status,
-            ) = IngredientRecipe.objects.get_or_create(
-                ingredient=ingredient_obj,
-                recipe=instance,
-                amount=ingredient["amount"],
-            )
-        return instance
 
     def get_is_favorited(self, instance):
         user = self.context["request"].user

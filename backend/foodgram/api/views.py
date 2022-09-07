@@ -12,18 +12,17 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet, ModelViewSet
 
-from recipes.models import Favorite, Ingredient, Recipe, ShoppingCart, Tag
-from recipes.serializers import IngredientSerializer, TagSerializer
+from recipes.models import (Favorite, Ingredient, IngredientRecipe, Recipe,
+                            ShoppingCart, Tag, TagRecipe)
 from users.models import Follower, User
-from users.serializers import UserSerializer, UserSuccesfullSignUpSerializer
 
+from .filters import RecipeFilterBackend
 from .pagination import StandardResultsSetPagination
 from .permissions import IsAuthorOrStaffOrReadOnly
-from .serializers import (
-    FollowerSerializer,
-    RecipeSerializer,
-    RecipeShortSerializer,
-)
+from .serializers import (FollowerSerializer, IngredientSerializer,
+                          RecipeSerializer, RecipeShortSerializer,
+                          TagSerializer, UserSerializer,
+                          UserSuccesfullSignUpSerializer)
 
 
 class CustomUserViewset(UserViewSet):
@@ -54,32 +53,37 @@ class CustomUserViewset(UserViewSet):
     @action(["post", "delete"], detail=True)
     def subscribe(self, request, *args, **kwargs):
         if request.method == "POST":
-            author = get_object_or_404(User, pk=kwargs.get("id"))
-            if author == request.user:
-                return Response(status=status.HTTP_400_BAD_REQUEST)
-            follower, status_obj = Follower.objects.get_or_create(
-                follower=request.user, author=author
-            )
-            if status_obj is False:
-                return Response(status=status.HTTP_400_BAD_REQUEST)
-            else:
-                contex = {"request": request}
-                serializer = FollowerSerializer(author, context=contex)
-                headers = self.get_success_headers(serializer.data)
-                return Response(
-                    serializer.data,
-                    status=status.HTTP_201_CREATED,
-                    headers=headers,
-                )
-        if request.method == "DELETE":
-            author = get_object_or_404(User, pk=kwargs.get("id"))
-            if Follower.objects.filter(
-                follower=request.user, author=author
-            ).exists():
-                Follower.objects.filter(
+            pk = kwargs.get("id")
+            if pk is not None and str(pk).isdigit():
+                author = get_object_or_404(User, pk=int(pk))
+                if author == request.user:
+                    return Response(status=status.HTTP_400_BAD_REQUEST)
+                follower, status_obj = Follower.objects.get_or_create(
                     follower=request.user, author=author
-                ).delete()
-                return Response(status=status.HTTP_204_NO_CONTENT)
+                )
+                if status_obj is False:
+                    return Response(status=status.HTTP_400_BAD_REQUEST)
+                else:
+                    contex = {"request": request}
+                    serializer = FollowerSerializer(author, context=contex)
+                    headers = self.get_success_headers(serializer.data)
+                    return Response(
+                        serializer.data,
+                        status=status.HTTP_201_CREATED,
+                        headers=headers,
+                    )
+            else:
+                return Response(status=status.HTTP_400_BAD_REQUEST)
+        if request.method == "DELETE":
+            pk = kwargs.get("id")
+            if pk is not None and str(pk).isdigit():
+                author = get_object_or_404(User, pk=int(pk))
+                if Follower.objects.filter(
+                    follower=request.user, author=author
+                ).delete():
+                    return Response(status=status.HTTP_204_NO_CONTENT)
+                else:
+                    return Response(status=status.HTTP_400_BAD_REQUEST)
             else:
                 return Response(status=status.HTTP_400_BAD_REQUEST)
 
@@ -111,33 +115,94 @@ class TagViewSet(GenericViewSet, RetrieveModelMixin, ListModelMixin):
 
 
 class RecipeViewSet(ModelViewSet):
+    queryset = Recipe.objects.all()
     serializer_class = RecipeSerializer
     permission_classes = [
         IsAuthorOrStaffOrReadOnly,
     ]
     pagination_class = StandardResultsSetPagination
+    filter_backends = [
+        RecipeFilterBackend,
+    ]
 
-    def get_queryset(self):
-        filter_params = {}
-        author = self.request.query_params.get("author")
-        if author is not None:
-            filter_params["author"] = author
-        is_favorited = self.request.query_params.get("is_favorited")
-        if is_favorited == "1":
-            filter_params["favorite__user"] = self.request.user
-        is_in_shopping_cart = self.request.query_params.get(
-            "is_in_shopping_cart"
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        ingredients = serializer.validated_data.pop("ingredients")
+        tags = serializer.validated_data.pop("tags")
+        recipe = serializer.save(author=self.request.user)
+        TagRecipe.objects.bulk_create(
+            [TagRecipe(recipe=recipe, tag=tag) for tag in tags]
         )
-        if is_in_shopping_cart == "1":
-            filter_params["shopping_cart__user"] = self.request.user
-        tags = self.request.query_params.getlist("tags")
-        if len(tags) > 0:
-            filter_params["tags__tag__slug__in"] = tags
-        queryset = Recipe.objects.filter(**filter_params).distinct()
-        return queryset
+        IngredientRecipe.objects.bulk_create(
+            [
+                IngredientRecipe(
+                    recipe=recipe,
+                    ingredient=Ingredient.objects.get(
+                        pk=ingredient["ingredient"]
+                    ),
+                    amount=ingredient["amount"],
+                )
+                for ingredient in ingredients
+            ]
+        )
+        serializer_created = self.get_serializer(recipe)
+        headers = self.get_success_headers(serializer_created.data)
+        return Response(
+            serializer_created.data,
+            status=status.HTTP_201_CREATED,
+            headers=headers,
+        )
 
-    def perform_create(self, serializer):
-        serializer.save(author=self.request.user)
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        serializer = self.get_serializer(
+            instance, data=request.data, partial=partial
+        )
+        serializer.is_valid(raise_exception=True)
+        ingredients_data = serializer.validated_data.pop("ingredients")
+        tags_data = serializer.validated_data.pop("tags")
+        recipe = serializer.save()
+        tag_id_list = []
+        for tag_data in tags_data:
+            tag_id_list.append(tag_data.pk)
+        ingredients_id_list = []
+        for ingredient_data in ingredients_data:
+            ingredients_id_list.append(ingredient_data["ingredient"])
+        for tag in instance.tags.all():
+            if tag.tag.pk not in tag_id_list:
+                tag_recipe_obj = TagRecipe.objects.get(
+                    tag=tag.tag, recipe=instance
+                )
+                tag_recipe_obj.delete()
+        for tag in tags_data:
+            tag, status = TagRecipe.objects.get_or_create(
+                tag=tag, recipe=instance
+            )
+        for ingredient in instance.ingredients.all():
+            if ingredient.ingredient.pk not in ingredients_id_list:
+                ingredient_recipe_obj = IngredientRecipe.objects.get(
+                    ingredient=ingredient.ingredient, recipe=instance
+                )
+                ingredient_recipe_obj.delete()
+        for ingredient in ingredients_data:
+            ingredient_obj = Ingredient.objects.get(
+                pk=ingredient["ingredient"]
+            )
+            (
+                ingredient_recipe_obj,
+                status,
+            ) = IngredientRecipe.objects.get_or_create(
+                ingredient=ingredient_obj,
+                recipe=instance,
+                amount=ingredient["amount"],
+            )
+
+        if getattr(instance, "_prefetched_objects_cache", None):
+            instance._prefetched_objects_cache = {}
+        serializer_updated = self.get_serializer(recipe)
+        return Response(serializer_updated.data)
 
     @action(
         detail=False,
@@ -188,6 +253,14 @@ class RecipeViewSet(ModelViewSet):
                         align="L",
                     )
                     amount = result[i][2]
+        else:
+            pdf.cell(
+                0,
+                10,
+                txt="Вы ещё не добавили рецепты в список покупок :(",
+                ln=1,
+                align="L",
+            )
         pdf.output(f"data/tmp_{request.user}.pdf", "F")
         response = FileResponse(open(f"data/tmp_{request.user}.pdf", "rb"))
         os.remove(f"data/tmp_{request.user}.pdf")
@@ -196,44 +269,64 @@ class RecipeViewSet(ModelViewSet):
 
 class ShoppingCartView(APIView):
     def post(self, request, *args, **kwargs):
-        recipe = get_object_or_404(Recipe, pk=kwargs.get("recipe_id"))
-        serializer = RecipeShortSerializer(recipe)
-        shopping_cart, status_obj = ShoppingCart.objects.get_or_create(
-            user=request.user, recipe=recipe
-        )
-        if status_obj is True:
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        pk = kwargs.get("recipe_id")
+        if pk is not None and str(pk).isdigit():
+            recipe = get_object_or_404(Recipe, pk=int(pk))
+            serializer = RecipeShortSerializer(recipe)
+            shopping_cart, status_obj = ShoppingCart.objects.get_or_create(
+                user=request.user, recipe=recipe
+            )
+            if status_obj is True:
+                return Response(
+                    serializer.data, status=status.HTTP_201_CREATED
+                )
+            else:
+                return Response(status=status.HTTP_400_BAD_REQUEST)
         else:
             return Response(status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, *args, **kwargs):
-        recipe = get_object_or_404(Recipe, pk=kwargs.get("recipe_id"))
-        instance = get_object_or_404(
-            ShoppingCart, recipe=recipe, user=request.user
-        )
-        instance.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        pk = kwargs.get("recipe_id")
+        if pk is not None and str(pk).isdigit():
+            recipe = get_object_or_404(Recipe, pk=int(pk))
+            instance = get_object_or_404(
+                ShoppingCart, recipe=recipe, user=request.user
+            )
+            instance.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        else:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
 
 
 class FavoriteView(APIView):
     def post(self, request, *args, **kwargs):
-        recipe = get_object_or_404(Recipe, pk=kwargs.get("recipe_id"))
-        serializer = RecipeShortSerializer(recipe)
-        favorite, status_obj = Favorite.objects.get_or_create(
-            user=request.user, recipe=recipe
-        )
-        if status_obj is True:
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        pk = kwargs.get("recipe_id")
+        if pk is not None and str(pk).isdigit():
+            recipe = get_object_or_404(Recipe, pk=int(pk))
+            serializer = RecipeShortSerializer(recipe)
+            favorite, status_obj = Favorite.objects.get_or_create(
+                user=request.user, recipe=recipe
+            )
+            if status_obj is True:
+                return Response(
+                    serializer.data, status=status.HTTP_201_CREATED
+                )
+            else:
+                return Response(status=status.HTTP_400_BAD_REQUEST)
         else:
             return Response(status=status.HTTP_400_BAD_REQUEST)
 
     def delete(self, request, *args, **kwargs):
-        recipe = get_object_or_404(Recipe, pk=kwargs.get("recipe_id"))
-        instance = get_object_or_404(
-            Favorite, recipe=recipe, user=request.user
-        )
-        instance.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        pk = kwargs.get("recipe_id")
+        if pk is not None and str(pk).isdigit():
+            recipe = get_object_or_404(Recipe, pk=int(pk))
+            instance = get_object_or_404(
+                Favorite, recipe=recipe, user=request.user
+            )
+            instance.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        else:
+            return Response(status=status.HTTP_400_BAD_REQUEST)
 
 
 class IngredientViewSet(GenericViewSet, RetrieveModelMixin, ListModelMixin):
@@ -246,8 +339,6 @@ class IngredientViewSet(GenericViewSet, RetrieveModelMixin, ListModelMixin):
     def get_queryset(self):
         name = self.request.query_params.get("name")
         if name is not None:
-            queryset = Ingredient.objects.filter(name__startswith=name.lower())
-            return queryset
+            return Ingredient.objects.filter(name__startswith=name.lower())
         else:
-            queryset = Ingredient.objects.all()
-            return queryset
+            return Ingredient.objects.all()

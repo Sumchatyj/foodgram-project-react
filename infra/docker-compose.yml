@@ -12,7 +12,6 @@ services:
     command: sh -c "
       cd foodgram/
       && python manage.py migrate
-      && python manage.py fill_db
       && python manage.py collectstatic --no-input
       && gunicorn foodgram.wsgi:application --bind 0:8000"
     volumes:

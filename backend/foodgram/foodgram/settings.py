@@ -86,7 +86,6 @@ DATABASES = {
     }
 }
 
-
 # Password validation
 # https://docs.djangoproject.com/en/3.2/ref/settings/#auth-password-validators
 
@@ -152,10 +151,14 @@ REST_FRAMEWORK = {
     ],
 }
 
+PAGE_SIZE_QUERY_PARAM = "limit"
+
+MAX_PAGE_SIZE = 100
+
 DJOSER = {
     "SERIALIZERS": {
-        "user": "users.serializers.UserGetSerializer",
-        "current_user": "users.serializers.UserGetSerializer",
+        "user": "api.serializers.UserGetSerializer",
+        "current_user": "api.serializers.UserGetSerializer",
     },
     "PERMISSIONS": {
         "user_list": ["rest_framework.permissions.AllowAny"],

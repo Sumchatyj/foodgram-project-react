@@ -1,4 +1,4 @@
-version: '3.3'
+version: '1.29'
 services:
   db:
     image: postgres:13.0-alpine
@@ -7,7 +7,7 @@ services:
     env_file:
       - ./.env
   web:
-    build: ../backend
+    image: sumchatyj/foodgram_backend:latest
     restart: always
     command: sh -c "
       cd foodgram/
@@ -22,9 +22,7 @@ services:
     env_file:
       - ./.env
   frontend:
-    build:
-      context: ../frontend
-      dockerfile: Dockerfile
+    image: sumchatyj/foodgram_frontend:latest
     volumes:
       - ../frontend/:/app/result_build/
     depends_on:

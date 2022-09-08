@@ -29,7 +29,7 @@ jobs:
       run: |
         python -m flake8
   build_and_push_backend_to_docker_hub:
-    name: Push Docker image to Docker Hub
+    name: Push backend Docker image to Docker Hub
     runs-on: ubuntu-latest
     needs: build
     steps:
@@ -48,3 +48,23 @@ jobs:
           context: backend
           push: true
           tags: sumchatyj/foodgram_backend:latest
+  build_and_push_frontend_to_docker_hub:
+    name: Push frontend Docker image to Docker Hub
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v2 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1 
+      - name: Login to Docker 
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+      - name: Push to Docker Hub
+        uses: docker/build-push-action@v2 
+        with:
+          context: frontend
+          push: true
+          tags: sumchatyj/foodgram_frontend:latest

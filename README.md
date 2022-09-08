@@ -37,3 +37,11 @@ python manage.py fill_db
 ```
 
 Веб-приложение будет доступно на localhost
+
+адрес:
+http://foodgram.zapto.org/
+
+username:
+admin
+password:
+adminyandex

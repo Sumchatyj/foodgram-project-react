@@ -1,9 +1,8 @@
 from django.contrib.auth.models import AnonymousUser
 from drf_extra_fields.fields import Base64ImageField
-from rest_framework import serializers
-
 from recipes.models import (Favorite, Ingredient, IngredientRecipe, Recipe,
                             ShoppingCart, Tag)
+from rest_framework import serializers
 from users.models import Follower, User
 
 
@@ -177,8 +176,7 @@ class FollowerSerializer(UserGetSerializer):
         model = User
 
     def get_recipes_count(self, instance):
-        count = Recipe.objects.filter(author=instance).count()
-        return count
+        return Recipe.objects.filter(author=instance).count()
 
     def to_representation(self, instance):
         data = super(FollowerSerializer, self).to_representation(instance)

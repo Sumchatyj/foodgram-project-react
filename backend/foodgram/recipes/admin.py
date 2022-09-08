@@ -18,8 +18,7 @@ class RecipeAdmin(admin.ModelAdmin):
 
     @admin.display(description="favorite")
     def count_favorite(self, obj):
-        count = Favorite.objects.filter(recipe=obj).count()
-        return count
+        return Favorite.objects.filter(recipe=obj).count()
 
 
 class TagAdmin(admin.ModelAdmin):

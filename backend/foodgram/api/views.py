@@ -4,6 +4,8 @@ from django.http import FileResponse
 from django.shortcuts import get_object_or_404
 from djoser.views import UserViewSet
 from fpdf import FPDF
+from recipes.models import (Favorite, Ingredient, IngredientRecipe, Recipe,
+                            ShoppingCart, Tag, TagRecipe)
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
@@ -11,9 +13,6 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet, ModelViewSet
-
-from recipes.models import (Favorite, Ingredient, IngredientRecipe, Recipe,
-                            ShoppingCart, Tag, TagRecipe)
 from users.models import Follower, User
 
 from .filters import RecipeFilterBackend
@@ -74,7 +73,7 @@ class CustomUserViewset(UserViewSet):
                     )
             else:
                 return Response(status=status.HTTP_400_BAD_REQUEST)
-        if request.method == "DELETE":
+        else:
             pk = kwargs.get("id")
             if pk is not None and str(pk).isdigit():
                 author = get_object_or_404(User, pk=int(pk))
